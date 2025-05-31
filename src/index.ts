@@ -158,7 +158,7 @@ export class BinanceSDK {
     // Step 3: For each symbol, setup WebSocket and snapshot sync
     await Promise.all(syms.map(async (sym) => {
       const apiSym = this.transformSymbol(sym);
-      const wsUrl = `${this.baseWsUrl.replace(/\/ws$/, '')}/${apiSym.toLowerCase()}@depth@100ms`;
+      const wsUrl = `${this.baseWsUrl}/${apiSym.toLowerCase()}@depth@100ms`;
       const ws = new WebSocket(wsUrl);
       wsMap[sym] = ws;
       eventBuffers[sym] = [];
@@ -243,6 +243,16 @@ export class BinanceSDK {
           applyEvent(ob, ev);
         }
         eventBuffers[sym] = [];
+        // After applying all events
+        const result: Record<string, OrderBook> = {};
+        for (const s of syms) {
+          if (!orderBooks[s]) continue;
+          result[s] = {
+            bids: mapToSortedArray(orderBooks[s].bids, true),
+            asks: mapToSortedArray(orderBooks[s].asks, false),
+          };
+        }
+        callback(result);
       };
 
       // Start by fetching snapshot

@@ -10,6 +10,12 @@ A TypeScript SDK for the Binance Exchange API, providing both REST and WebSocket
 
 ---
 
+## Release Notes
+- 0.1.1 - Hot fix, order book subscription
+- 0.1.0 - First implementation with fetch orderbook and order book subscription functions
+
+---
+
 ## Table of Contents
 
 - [Overview](#overview)

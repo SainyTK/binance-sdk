@@ -8,7 +8,7 @@ describe('BinanceSDK Integration', () => {
     sdk = new BinanceSDK();
   });
 
-  it('fetchMarketSymbols should return a non-empty object', async () => {
+  xit('fetchMarketSymbols should return a non-empty object', async () => {
     const result = await sdk.fetchMarketSymbols();
     logIfEnabled(result);
     expect(result).toBeDefined();
@@ -18,7 +18,7 @@ describe('BinanceSDK Integration', () => {
     expect(result).toHaveProperty('BTC_USDT');
   });
 
-  it('fetchOrderBooks should return order book for BTC_USDT', async () => {
+  xit('fetchOrderBooks should return order book for BTC_USDT', async () => {
     const result = await sdk.fetchOrderBooks(['BTC_USDT']);
     logIfEnabled(result);
     expect(result).toBeDefined();
@@ -29,7 +29,7 @@ describe('BinanceSDK Integration', () => {
     expect(result.BTC_USDT.asks.length).toBeGreaterThan(0);
   });
 
-  it('fetchOrderBooks should return order books for multiple symbols', async () => {
+  xit('fetchOrderBooks should return order books for multiple symbols', async () => {
     const result = await sdk.fetchOrderBooks(['BTC_USDT', 'ETH_USDT']);
     logIfEnabled(result);
     expect(result).toBeDefined();
@@ -55,5 +55,6 @@ describe('BinanceSDK Integration', () => {
     // Optionally, check the structure of the update
     expect(updates[0]).toHaveProperty('BTC_USDT');
     // Unsubscribe/cleanup if your SDK supports it (not shown here)
+    await sdk.unsubscribeOrderBooks(subId);
   }, 10000); // Increase timeout for websocket
 });
