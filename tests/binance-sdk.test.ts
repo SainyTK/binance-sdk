@@ -239,42 +239,46 @@ describe('BinanceSDK', () => {
       jest.clearAllMocks();
     });
 
-    it('should call callback with order book data on tradeschanged event', async () => {
-      // Mock fetchMarketSymbols
-      mockedAxios.get.mockResolvedValueOnce({
-        data: {
-          error: 0,
-          result: [
-            { id: 1, symbol: 'THB_BTC', info: 'Thai Baht to Bitcoin' },
-          ],
-        },
-      });
+    it('should call callback with updated order book after applying depthUpdate events', async () => {
+      // 1. Mock the REST API snapshot response
+      const snapshot = {
+        lastUpdateId: 100,
+        bids: [["0.0024", "5"], ["0.0023", "3"]],
+        asks: [["0.0026", "8"], ["0.0027", "2"]],
+      };
+      mockedAxios.get.mockResolvedValueOnce({ data: snapshot });
+
+      // 2. Prepare callback and subscribe
       const callback = jest.fn();
-      const promise = sdk.subscribeOrderBooks(['BTC_THB'], callback);
-      // Wait for subscription to resolve
+      const promise = sdk.subscribeOrderBooks(["BNB_BTC"], callback);
       const subId = await promise;
       expect(subId).toMatch(/^sub_/);
-      // Simulate tradeschanged event
+
+      // 3. Simulate a depthUpdate event (should be buffered until snapshot is received)
       const ws = mockWsInstances[0];
-      const tradeschangedMsg = JSON.stringify({
-        data: [
-          [],
-          [[null, 10000, 0.5], [null, 9999, 0.3]], // bids: [price, amount]
-          [[null, 10001, 0.45], [null, 10002, 0.2]], // asks: [price, amount]
-        ],
-        event: 'tradeschanged',
-        pairing_id: 1,
+      // This event's U/u are after the snapshot's lastUpdateId, so it should be applied
+      const depthUpdateMsg = JSON.stringify({
+        e: "depthUpdate",
+        E: 1672515782136,
+        s: "BNBBTC",
+        U: 101,
+        u: 102,
+        b: [["0.0024", "10"], ["0.0022", "1"]], // update 0.0024, add 0.0022
+        a: [["0.0026", "0"], ["0.0028", "4"]],   // remove 0.0026, add 0.0028
       });
-      ws.onmessage({ data: tradeschangedMsg });
+      ws.onmessage({ data: depthUpdateMsg });
+
+      // 4. Check the callback is called with the correct updated order book
       expect(callback).toHaveBeenCalledWith({
-        BTC_THB: {
+        BNB_BTC: {
           bids: [
-            { price: 10000, amount: 0.5 },
-            { price: 9999, amount: 0.3 },
+            { price: 0.0024, amount: 10 }, // updated
+            { price: 0.0023, amount: 3 },  // unchanged
+            { price: 0.0022, amount: 1 },  // new
           ],
           asks: [
-            { price: 10001, amount: 0.45 },
-            { price: 10002, amount: 0.2 },
+            { price: 0.0027, amount: 2 },  // unchanged
+            { price: 0.0028, amount: 4 },  // new
           ],
         },
       });

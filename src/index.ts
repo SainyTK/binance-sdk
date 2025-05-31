@@ -4,6 +4,8 @@ import {
   BinanceExchangeInfoResponse,
   OrderBookResponse,
   ResponseOrderBookEntry,
+  DepthUpdateEvent,
+  BinanceAPIDepth,
 } from "./types/response.type";
 import { LocalOrderBook, OrderBookSide } from "./types/local.type";
 import WebSocket from "isomorphic-ws";
@@ -54,6 +56,16 @@ export class BinanceSDK {
     }
   }
 
+  private async fetchOrderBookSnapshot(symbol: string, limit?: number): Promise<BinanceAPIDepth> {
+    const apiSym = this.transformSymbol(symbol);
+    const params: { symbol: string; limit?: number } = { symbol: apiSym };
+    if (limit !== undefined) params.limit = limit;
+    const response = await axios.get<BinanceAPIDepth>(`${this.baseUrl}/api/v3/depth`, {
+      params,
+    });
+    return response.data;
+  }
+
   async fetchOrderBooks(
     syms: string[],
     lmt?: number
@@ -61,14 +73,7 @@ export class BinanceSDK {
     try {
       const results = await Promise.all(
         syms.map(async (sym) => {
-          const apiSym = this.transformSymbol(sym);
-          const params: { symbol: string; limit?: number } = { symbol: apiSym };
-          if (lmt !== undefined) params.limit = lmt;
-          const response = await axios.get(
-            `${this.baseUrl}/api/v3/depth`,
-            { params }
-          );
-          const { bids, asks } = response.data;
+          const { bids, asks } = await this.fetchOrderBookSnapshot(sym, lmt);
           // Transform bids and asks to OrderBookEntry[]
           const transform = (entries: [string, string][]) =>
             entries.map(([price, amount]) => ({
@@ -93,8 +98,8 @@ export class BinanceSDK {
   }
 
   /**
-   * Subscribe to real-time order book updates for given symbols.
-   * @param syms Array of market symbols (e.g., ['BTC_THB'])
+   * Subscribe to real-time order book updates for given symbols (Binance official method).
+   * @param syms Array of market symbols (e.g., ['BTC_USDT'])
    * @param callback Callback to receive the latest order book for each symbol
    * @returns Subscription ID
    */
@@ -102,31 +107,22 @@ export class BinanceSDK {
     syms: string[],
     callback: (result: Record<string, OrderBook>) => void
   ): Promise<string> {
-    // Step 1: Fetch market symbols to map symbol -> id
-    const marketSymbols = await this.fetchMarketSymbols();
-    const symbolToId: Record<string, number> = {};
-    for (const sym of syms) {
-      const info = marketSymbols[sym];
-      if (!info) throw new Error(`Symbol not found: ${sym}`);
-      symbolToId[sym] = info.id;
-    }
-
-    // Step 2: State for each symbol
+    // Step 1: State for each symbol
     const orderBooks: Record<string, LocalOrderBook> = {};
     const wsMap: Record<string, WebSocket> = {};
+    const eventBuffers: Record<string, any[]> = {};
     const subscriptionId = `sub_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const active = { value: true };
 
-    // Step 3: Private utils
-    const arrayToMap = <T>(
-      arr: T[][],
-      priceIdx: number,
-      amountIdx: number
+    // Step 2: Utility functions
+    const arrayToMap = (
+      arr: [string, string][],
     ): OrderBookSide => {
       const map = new Map<number, number>();
-      for (const entry of arr) {
-        const price = Number(entry[priceIdx]);
-        const amount = Number(entry[amountIdx]);
-        if (amount > 0) map.set(price, amount);
+      for (const [price, amount] of arr) {
+        const p = Number(price);
+        const a = Number(amount);
+        if (a > 0) map.set(p, a);
       }
       return map;
     };
@@ -134,71 +130,124 @@ export class BinanceSDK {
       map: OrderBookSide,
       desc: boolean
     ): OrderBookEntry[] => {
-      const arr = Array.from(map.entries()).map(([price, amount]) => ({
-        price,
-        amount,
-      }));
+      const arr = Array.from(map.entries()).map(([price, amount]) => ({ price, amount }));
       arr.sort((a, b) => (desc ? b.price - a.price : a.price - b.price));
       return arr;
     };
+    const applyEvent = (
+      ob: LocalOrderBook,
+      event: DepthUpdateEvent
+    ) => {
+      // Update bids
+      for (const [price, qty] of event.b) {
+        const p = Number(price);
+        const q = Number(qty);
+        if (q === 0) ob.bids.delete(p);
+        else ob.bids.set(p, q);
+      }
+      // Update asks
+      for (const [price, qty] of event.a) {
+        const p = Number(price);
+        const q = Number(qty);
+        if (q === 0) ob.asks.delete(p);
+        else ob.asks.set(p, q);
+      }
+      ob.updateId = event.u;
+    };
 
-    // Step 4: WebSocket logic per symbol
-    for (const sym of syms) {
-      const id = symbolToId[sym];
-      const wsUrl = `${this.baseWsUrl}/orderbook/${id}`;
+    // Step 3: For each symbol, setup WebSocket and snapshot sync
+    await Promise.all(syms.map(async (sym) => {
+      const apiSym = this.transformSymbol(sym);
+      const wsUrl = `${this.baseWsUrl.replace(/\/ws$/, '')}/${apiSym.toLowerCase()}@depth@100ms`;
       const ws = new WebSocket(wsUrl);
       wsMap[sym] = ws;
+      eventBuffers[sym] = [];
+      let snapshotFetched = false;
+      let syncing = false;
 
-      // Attach event listeners (isomorphic-ws supports both .on and addEventListener)
-      ws.onopen = () => {
-        // Optionally handle open
-      };
-      ws.onmessage = (event: any) => {
+      // 1. Buffer events until snapshot is fetched
+      ws.onmessage = (event: WebSocket.MessageEvent) => {
+        if (!active.value) return;
         try {
-          // event.data is always a string or Buffer
           const data = typeof event.data === "string" ? event.data : event.data.toString();
-          const msg = JSON.parse(data) as {
-            data: unknown;
-            event: string;
-            pairing_id: number;
-          };
-          if (msg.event === "tradeschanged") {
-            const [, /*trades*/ bidsArr, asksArr] = msg.data as unknown[][][];
-            orderBooks[sym] = {
-              bids: arrayToMap(bidsArr, 1, 2),
-              asks: arrayToMap(asksArr, 1, 2),
-            };
-          } else if (msg.event === "bidschanged") {
-            const bidsArr = msg.data as unknown[][];
-            if (!orderBooks[sym]) return;
-            orderBooks[sym].bids = arrayToMap(bidsArr, 1, 2);
-          } else if (msg.event === "askschanged") {
-            const asksArr = msg.data as unknown[][];
-            if (!orderBooks[sym]) return;
-            orderBooks[sym].asks = arrayToMap(asksArr, 1, 2);
-          } else {
-            return;
+          const msg = JSON.parse(data) as DepthUpdateEvent;
+          if (msg.e !== "depthUpdate") return;
+          eventBuffers[sym].push(msg);
+          if (snapshotFetched) {
+            // If snapshot already fetched, process events
+            processBuffer();
           }
-          const result: Record<string, OrderBook> = {};
-          for (const s of syms) {
-            if (!orderBooks[s]) continue;
-            result[s] = {
-              bids: mapToSortedArray(orderBooks[s].bids, true),
-              asks: mapToSortedArray(orderBooks[s].asks, false),
-            };
-          }
-          callback(result);
         } catch (err) {
           // Optionally handle parse errors
         }
       };
-      ws.onerror = (event: any) => {
+      ws.onerror = (event: WebSocket.ErrorEvent) => {
         // Optionally handle errors
       };
       ws.onclose = () => {
         // Optionally handle reconnect or cleanup
       };
-    }
+
+      // 2. Fetch snapshot
+      const fetchSnapshot = async () => {
+        syncing = true;
+        try {
+          const { lastUpdateId, bids, asks } = await this.fetchOrderBookSnapshot(sym, 1000);
+          orderBooks[sym] = {
+            bids: arrayToMap(bids),
+            asks: arrayToMap(asks),
+            updateId: lastUpdateId,
+          };
+          snapshotFetched = true;
+          processBuffer();
+        } catch (err) {
+          // Optionally handle errors
+        }
+        syncing = false;
+      };
+
+      // 3. Process buffer and apply events
+      const processBuffer = () => {
+        if (!orderBooks[sym] || !snapshotFetched) return;
+        let ob = orderBooks[sym];
+        // Discard events where u <= lastUpdateId
+        let buffer = eventBuffers[sym];
+        buffer = buffer.filter((ev) => ev.u > ob.updateId);
+        // Find the first event where U <= lastUpdateId+1 <= u
+        let startIdx = buffer.findIndex(ev => ev.U <= ob.updateId + 1 && ob.updateId + 1 <= ev.u);
+        if (startIdx === -1) {
+          // Not in sync, need to refetch snapshot
+          if (!syncing) fetchSnapshot();
+          return;
+        }
+        // Discard events before startIdx
+        buffer = buffer.slice(startIdx);
+        // Apply all events
+        for (const ev of buffer) {
+          if (ev.u < ob.updateId) continue; // Ignore old event
+          if (ev.U > ob.updateId + 1) {
+            // Out of sync, resync
+            if (!syncing) fetchSnapshot();
+            return;
+          }
+          applyEvent(ob, ev);
+        }
+        eventBuffers[sym] = [];
+        // Callback with latest order book for all symbols
+        const result: Record<string, OrderBook> = {};
+        for (const s of syms) {
+          if (!orderBooks[s]) continue;
+          result[s] = {
+            bids: mapToSortedArray(orderBooks[s].bids, true),
+            asks: mapToSortedArray(orderBooks[s].asks, false),
+          };
+        }
+        callback(result);
+      };
+
+      // Start by fetching snapshot
+      fetchSnapshot();
+    }));
 
     // Store wsMap for this subscription
     this._orderBookWsSubs[subscriptionId] = wsMap;
