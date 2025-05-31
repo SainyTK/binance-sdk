@@ -34,7 +34,7 @@ export class BinanceSDK {
 
   async fetchMarketSymbols(): Promise<MarketSymbols> {
     try {
-      const response = await axios.get<BinanceExchangeInfoResponse>(`${this.baseUrl}/api/v3/exchangeInfo?symbolStatus=TRADING&showPermissionSets=false`);
+      const response = await axios.get<BinanceExchangeInfoResponse>(`${this.baseUrl}/api/v1/exchangeInfo?symbolStatus=TRADING&showPermissionSets=false`);
       const rawSymbols = response.data.symbols;
 
       const transformed: MarketSymbols = {};
@@ -60,7 +60,7 @@ export class BinanceSDK {
     const apiSym = this.transformSymbol(symbol);
     const params: { symbol: string; limit?: number } = { symbol: apiSym };
     if (limit !== undefined) params.limit = limit;
-    const response = await axios.get<BinanceAPIDepth>(`${this.baseUrl}/api/v3/depth`, {
+    const response = await axios.get<BinanceAPIDepth>(`${this.baseUrl}/api/v1/depth`, {
       params,
     });
     return response.data;
