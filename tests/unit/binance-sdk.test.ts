@@ -1,6 +1,6 @@
-import { BinanceSDK } from '../src/index';
+import { BinanceSDK } from '../../src/index';
 import axios from 'axios';
-import { MarketSymbols } from '../src/types/output.type';
+import { MarketSymbols } from '../../src/types/output.type';
 import WebSocket from 'isomorphic-ws';
 
 jest.mock('axios');

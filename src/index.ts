@@ -110,7 +110,7 @@ export class BinanceSDK {
     // Step 1: State for each symbol
     const orderBooks: Record<string, LocalOrderBook> = {};
     const wsMap: Record<string, WebSocket> = {};
-    const eventBuffers: Record<string, any[]> = {};
+    const eventBuffers: Record<string, DepthUpdateEvent[]> = {};
     const subscriptionId = `sub_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const active = { value: true };
 
@@ -199,6 +199,16 @@ export class BinanceSDK {
             updateId: lastUpdateId,
           };
           snapshotFetched = true;
+          // Fire callback with the latest snapshot for all symbols
+          const result: Record<string, OrderBook> = {};
+          for (const s of syms) {
+            if (!orderBooks[s]) continue;
+            result[s] = {
+              bids: mapToSortedArray(orderBooks[s].bids, true),
+              asks: mapToSortedArray(orderBooks[s].asks, false),
+            };
+          }
+          callback(result);
           processBuffer();
         } catch (err) {
           // Optionally handle errors
@@ -233,16 +243,6 @@ export class BinanceSDK {
           applyEvent(ob, ev);
         }
         eventBuffers[sym] = [];
-        // Callback with latest order book for all symbols
-        const result: Record<string, OrderBook> = {};
-        for (const s of syms) {
-          if (!orderBooks[s]) continue;
-          result[s] = {
-            bids: mapToSortedArray(orderBooks[s].bids, true),
-            asks: mapToSortedArray(orderBooks[s].asks, false),
-          };
-        }
-        callback(result);
       };
 
       // Start by fetching snapshot

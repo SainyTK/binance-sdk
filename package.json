@@ -1,6 +1,6 @@
 {
     "name": "@arbit-x/binance-sdk",
-    "version": "0.1.2",
+    "version": "0.1.0",
     "description": "TypeScript SDK for Binance Exchange API",
     "repository": {
         "type": "git",
@@ -15,7 +15,8 @@
         "build": "tsc",
         "clean": "rimraf dist",
         "prebuild": "npm run clean",
-        "test": "jest",
+        "test": "jest tests/unit",
+        "test:integration": "jest tests/integration",
         "lint": "eslint . --ext .ts",
         "format": "prettier --write \"src/**/*.ts\""
     },
