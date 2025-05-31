@@ -62,19 +62,19 @@ export class BinanceSDK {
       const results = await Promise.all(
         syms.map(async (sym) => {
           const apiSym = this.transformSymbol(sym);
-          const params: { sym: string; lmt?: number } = { sym: apiSym };
-          if (lmt !== undefined) params.lmt = lmt;
-          const response = await axios.get<OrderBookResponse>(
-            `${this.baseUrl}/api/market/books`,
+          const params: { symbol: string; limit?: number } = { symbol: apiSym };
+          if (lmt !== undefined) params.limit = lmt;
+          const response = await axios.get(
+            `${this.baseUrl}/api/v3/depth`,
             { params }
           );
-          if (response.data.error !== 0) {
-            throw new Error(`API error for ${sym}: ${response.data.error}`);
-          }
-          // Transform bids and asks
-          const { bids, asks } = response.data.result;
-          const transform = (entries: ResponseOrderBookEntry[]) =>
-            entries.map((entry) => ({ price: entry[3], amount: entry[4] }));
+          const { bids, asks } = response.data;
+          // Transform bids and asks to OrderBookEntry[]
+          const transform = (entries: [string, string][]) =>
+            entries.map(([price, amount]) => ({
+              price: Number(price),
+              amount: Number(amount),
+            }));
           return [
             sym,
             { bids: transform(bids), asks: transform(asks) },
@@ -88,8 +88,8 @@ export class BinanceSDK {
   }
 
   private transformSymbol(sym: string): string {
-    const [base, quote] = sym.split("_");
-    return `${quote.toLowerCase()}_${base.toLowerCase()}`;
+    // Convert BTC_USDT to BTCUSDT
+    return sym.replace("_", "");
   }
 
   /**

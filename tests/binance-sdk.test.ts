@@ -137,72 +137,80 @@ describe('BinanceSDK', () => {
   describe('fetchOrderBooks', () => {
     it('should fetch order book for a single symbol', async () => {
       const mockApiResponse = {
-        error: 0,
-        result: {
-          bids: [["1", 1529453033, 997.5, 10000, 0.09975]],
-          asks: [["680", 1529491094, 997.5, 10000, 0.09975]],
-        },
+        lastUpdateId: 123456,
+        bids: [["10000.00", "0.09975"]],
+        asks: [["10001.00", "0.08888"]],
       };
       mockedAxios.get.mockResolvedValueOnce({ data: mockApiResponse });
       const sdk = new BinanceSDK();
-      const result = await sdk.fetchOrderBooks(["BTC_THB"]);
+      const result = await sdk.fetchOrderBooks(["BTC_USDT"]);
       expect(result).toEqual({
-        BTC_THB: {
+        BTC_USDT: {
           bids: [{ price: 10000, amount: 0.09975 }],
-          asks: [{ price: 10000, amount: 0.09975 }],
+          asks: [{ price: 10001, amount: 0.08888 }],
         },
       });
       expect(mockedAxios.get).toHaveBeenCalledWith(
         'https://api.binance.com/api/v3/depth',
-        { params: { symbol: 'BTC_THB' } }
+        { params: { symbol: 'BTCUSDT' } }
       );
     });
 
     it('should fetch order books for multiple symbols', async () => {
       const mockApiResponse1 = {
-        error: 0,
-        result: {
-          bids: [["2", 1529453034, 500, 20000, 0.025]],
-          asks: [["681", 1529491095, 500, 20000, 0.025]],
-        },
+        lastUpdateId: 123457,
+        bids: [["20000.00", "0.025"]],
+        asks: [["20001.00", "0.024"]],
       };
       const mockApiResponse2 = {
-        error: 0,
-        result: {
-          bids: [["3", 1529453035, 250, 30000, 0.00833]],
-          asks: [["682", 1529491096, 250, 30000, 0.00833]],
-        },
+        lastUpdateId: 123458,
+        bids: [["30000.00", "0.00833"]],
+        asks: [["30001.00", "0.00800"]],
       };
       mockedAxios.get
         .mockResolvedValueOnce({ data: mockApiResponse1 })
         .mockResolvedValueOnce({ data: mockApiResponse2 });
       const sdk = new BinanceSDK();
-      const result = await sdk.fetchOrderBooks(["BTC_THB", "ETH_THB"]);
+      const result = await sdk.fetchOrderBooks(["BTC_USDT", "ETH_USDT"]);
       expect(result).toEqual({
-        BTC_THB: {
+        BTC_USDT: {
           bids: [{ price: 20000, amount: 0.025 }],
-          asks: [{ price: 20000, amount: 0.025 }],
+          asks: [{ price: 20001, amount: 0.024 }],
         },
-        ETH_THB: {
+        ETH_USDT: {
           bids: [{ price: 30000, amount: 0.00833 }],
-          asks: [{ price: 30000, amount: 0.00833 }],
+          asks: [{ price: 30001, amount: 0.008 }],
         },
       });
       expect(mockedAxios.get).toHaveBeenCalledWith(
         'https://api.binance.com/api/v3/depth',
-        { params: { symbol: 'BTC_THB' } }
+        { params: { symbol: 'BTCUSDT' } }
       );
       expect(mockedAxios.get).toHaveBeenCalledWith(
         'https://api.binance.com/api/v3/depth',
-        { params: { symbol: 'ETH_THB' } }
+        { params: { symbol: 'ETHUSDT' } }
       );
     });
 
-    it('should throw an error if the API returns an error for a symbol', async () => {
-      const mockApiResponse = { error: 1, result: { bids: [], asks: [] } };
+    it('should pass the limit parameter if provided', async () => {
+      const mockApiResponse = {
+        lastUpdateId: 123459,
+        bids: [["40000.00", "0.01"]],
+        asks: [["40001.00", "0.02"]],
+      };
       mockedAxios.get.mockResolvedValueOnce({ data: mockApiResponse });
       const sdk = new BinanceSDK();
-      await expect(sdk.fetchOrderBooks(["BTC_THB"])).rejects.toThrow('API error for BTC_THB: 1');
+      await sdk.fetchOrderBooks(["BTC_USDT"], 50);
+      expect(mockedAxios.get).toHaveBeenCalledWith(
+        'https://api.binance.com/api/v3/depth',
+        { params: { symbol: 'BTCUSDT', limit: 50 } }
+      );
+    });
+
+    it('should throw an error if the request fails', async () => {
+      mockedAxios.get.mockRejectedValueOnce(new Error('Network error'));
+      const sdk = new BinanceSDK();
+      await expect(sdk.fetchOrderBooks(["BTC_USDT"])).rejects.toThrow('Failed to fetch order books');
     });
   });
 
