@@ -68,14 +68,14 @@ const marketSymbols = await binanceSDK.fetchMarketSymbols();
 console.log('Market symbols:', marketSymbols);
 
 // --- REST Example: Fetch order books for symbols ---
-const orderBooks = await binanceSDK.fetchOrderBooks(['BTCUSDT', 'ETHUSDT']);
-const btcOrderBook = orderBooks['BTCUSDT']
-const ethOrderBook = orderBooks['ETHUSDT']
+const orderBooks = await binanceSDK.fetchOrderBooks(['BTC_USDT', 'ETH_USDT']);
+const btcOrderBook = orderBooks['BTC_USDT']
+const ethOrderBook = orderBooks['ETH_USDT']
 console.log('Order books:', orderBooks);
 
 // --- WebSocket Example: Subscribe to real-time order book updates ---
-const subscriptionId = await binanceSDK.subscribeOrderBooks(['BTCUSDT'], (orderBooks) => {
-    const { bids, asks } = orderBooks['BTCUSDT']
+const subscriptionId = await binanceSDK.subscribeOrderBooks(['BTC_USDT'], (orderBooks) => {
+    const { bids, asks } = orderBooks['BTC_USDT']
     console.log('Live order book update:', bids, asks);
 });
 
